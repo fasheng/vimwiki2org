@@ -65,14 +65,6 @@ my $org_commit = "#";           # TODO
 my $org_file_tags = "vimwiki";
 say $org_commit, '+FILETAGS: :', $org_file_tags, ":";
 
-# the vimwiki index file
-my $index_file = shift @ARGV;
-$index_file = File::Spec->canonpath($index_file);
-my $vimwiki_base_dir = dirname $index_file;
-
-# the vimwiki diary index file, not necessary TODO
-my $diary_index_file = &build_path($vimwiki_base_dir, "diary/diary.wiki");
-
 # options TODO
 my $ignore_lonely_header = 1;
 # $ignore_file_list
@@ -104,9 +96,22 @@ my $list_regexp = '^(\s*)([#*-]) (.*)$';
 # plain text in vimwiki
 my $plain_regexp = '^(\s*)(.*)$';
 
-# main content
+## main loop
 &open_log();
-&open_and_dispatch($index_file);
+my $diary_index_file;
+foreach (@ARGV) {
+    # the vimwiki index file
+    my $index_file = $_;
+    $index_file = File::Spec->canonpath($index_file);
+    my $vimwiki_base_dir = dirname $index_file;
+
+    # the vimwiki diary index file, this file will dispatched at end
+    $diary_index_file = &build_path($vimwiki_base_dir, "diary/diary.wiki");
+
+    &open_and_dispatch($index_file);
+    &open_and_dispatch($diary_index_file);
+    # TODO diary file
+}
 &close_log();
 
 sub build_path {
@@ -122,7 +127,7 @@ sub open_log {
 
 sub append_log {
     my $msg = shift;
-    say {$log_fh} $msg if (defined $log_fh);
+    say {$log_fh} $msg if (fileno $log_fh);
 }
 
 sub close_log {
@@ -135,7 +140,7 @@ sub close_log {
 
 # main function
 sub open_and_dispatch {
-    my $vimwiki_file = shift @_;
+    my $vimwiki_file = shift;
     my $org_parent_lv = shift @_ // 0;
 
     # ignore repeated files
@@ -156,6 +161,16 @@ sub open_and_dispatch {
     }
     chomp(@content);
 
+    # convert filename as the main org headline first
+    {
+        my $org_headline_text = basename $vimwiki_file;
+        $org_headline_text =~ s/\.[^.]+$//; # remove file extension name
+        my $org_headline_lv = $org_parent_lv + 1;
+        say &build_org_headline($org_headline_text, $org_headline_lv);
+
+        $org_parent_lv++;
+    }
+
     # count headers in vimwiki
     my $header_count = grep /$header_regexp/, @content;
 
@@ -164,11 +179,14 @@ sub open_and_dispatch {
     # like "=== header ===", if not think of its parent level, it will be
     # convert to a org header as level 1, like "* header"
     my @headers = grep /$header_regexp/, @content;
-    my $min_header_lv = length((shift @headers) =~ s/$header_regexp/$1/r);
-    foreach(@headers) {
-        my $header_lv = length(s/$header_regexp/$1/r);
-        if($header_lv < $min_header_lv) {
-            $min_header_lv = $header_lv;
+    my $min_header_lv = 0;
+    if (@headers) {
+        $min_header_lv = length((shift @headers) =~ s/$header_regexp/$1/r);
+        foreach (@headers) {
+            my $header_lv = length(s/$header_regexp/$1/r);
+            if ($header_lv < $min_header_lv) {
+                $min_header_lv = $header_lv;
+            }
         }
     }
 
@@ -185,96 +203,102 @@ sub open_and_dispatch {
     my $first_list_pre_spc_count = undef;
 
     foreach(@content) {
-        # links in vimwiki
-        when (/$link_regexp/) {
-            # collect links in current line, and these links will be expand
-            # before next org headline output, in another hand, they will
-            # be append at the end of current org headline(if exist)
-            $_ = &collect_links_and_format_cur_line($_, \@collected_links,
-                                                     $vimwiki_file);
-            continue;
-        }
+        # my $exist_link_in_cur_line = 0;
+        given ($_) {
+            # links in vimwiki
+            when (/$link_regexp/) {
+                $_ = &convert_link_format($_);
+                continue;
+            }
 
-        # commit and placeholder of vimwiki, which all start with "%"
-        when (/$commit_regexp/) {
-            say "# ", $_;
-            next;
-        }
+            # commit and placeholder of vimwiki, which all start with "%"
+            when (/$commit_regexp/) {
+                say "# ", $_;
+                # next;           # TODO
+            }
 
-        # headers in vimwiki
-        when (/$header_regexp/) {
-            &expand_collected_links(\@collected_links, $last_org_headline_lv);
+            # headers in vimwiki
+            when (/$header_regexp/) {
+                &expand_collected_links(\@collected_links, $last_org_headline_lv);
 
-            # reset markers
-            $first_list_pre_spc_count = undef;
+                # reset markers
+                $first_list_pre_spc_count = undef;
 
-            if($ignore_lonely_header) {
-                # if there is only one header, ignore it
-                if($header_count <= 1){
-                    say $org_commit, $_;
-                    next;
+                if ($ignore_lonely_header) {
+                    # if there is only one header, ignore it
+                    if ($header_count <= 1) {
+                        say $org_commit, $_;
+                        break;
+                        # next;   # TODO
+                    }
+                }
+
+                # output as a org headline
+                my $header_lv = length(s/$header_regexp/$1/r);
+                my $header_text = s/$header_regexp/$2/r;
+                my $org_headline_lv =
+                    &compute_org_headline_lv($header_lv, $min_header_lv,
+                                             $org_parent_lv);
+                say &build_org_headline($header_text, $org_headline_lv);
+
+                # mark current header's org level as
+                # the following list's parent org level
+                $org_parent_lv_for_following_list = $org_headline_lv;
+                $last_org_headline_lv = $org_headline_lv;
+            }
+
+            # lists in vimwiki
+            when (/$list_regexp/) {
+                my $list_pre_spc_count = length(s/$list_regexp/$1/r);
+                my $list_text = s/$list_regexp/$3/r;
+                if (!defined($first_list_pre_spc_count)) {
+                    $first_list_pre_spc_count = $list_pre_spc_count;
+                }
+                if ($list_pre_spc_count <= $first_list_pre_spc_count) {
+                    # this list item could be convert to a org headline
+                    &expand_collected_links(\@collected_links, $last_org_headline_lv);
+
+                    my $org_headline_lv = $org_parent_lv_for_following_list + 1;
+
+                    # convert TODO state, '[X]' -> 'DONE', '[.]' or '[ ]' -> 'TODO'
+                    my $org_headline_text = $list_text =~ s/\[X\]/DONE/r;
+                    $org_headline_text = $org_headline_text =~ s/\[.\]/TODO/r;
+                    say &build_org_headline($org_headline_text, $org_headline_lv);
+                    $last_org_headline_lv = $org_headline_lv;
+                } else {
+                    # this list item could be convert to a org plain list
+                    # simple align text, and convert all item placeholder to '-'
+                    # such as '[#-*] ' -> '- '
+                    my $aligned_pre_spc_count = $list_pre_spc_count
+                        - $first_list_pre_spc_count
+                            + $org_parent_lv_for_following_list;
+                    my $aligned_pre_spc = " " x $aligned_pre_spc_count;
+                    s/$list_regexp/$aligned_pre_spc- $3/;
+                    say;
                 }
             }
 
-            # output as a org headline
-            my $header_lv = length(s/$header_regexp/$1/r);
-            my $header_text = s/$header_regexp/$2/r;
-            my $org_headline_lv =
-                &compute_org_headline_lv($header_lv, $min_header_lv,
-                                         $org_parent_lv);
-            say &build_org_headline($header_text, $org_headline_lv);
+            # plain text
+            default {
+                #align text TODO
+                # my $plain_pre_spc_count = length(s/$plain_regexp/$1/r);
 
-            # mark current header's org level as
-            # the following list's parent org level
-            $org_parent_lv_for_following_list = $org_headline_lv;
-            $last_org_headline_lv = $org_headline_lv;
-        }
-
-        # lists in vimwiki
-        when (/$list_regexp/) {
-            my $list_pre_spc_count = length(s/$list_regexp/$1/r);
-            my $list_text = s/$list_regexp/$3/r;
-            if(!defined($first_list_pre_spc_count)) {
-                $first_list_pre_spc_count = $list_pre_spc_count;
-            }
-            if($list_pre_spc_count <= $first_list_pre_spc_count) {
-                # this list item could be convert to a org headline
-                &expand_collected_links(\@collected_links, $last_org_headline_lv);
-
-                my $org_headline_lv = $org_parent_lv_for_following_list + 1;
-
-                # convert TODO state, '[X]' -> 'DONE', '[.]' or '[ ]' -> 'TODO'
-                my $org_headline_text = $list_text =~ s/\[X\]/DONE/r;
-                $org_headline_text = $org_headline_text =~ s/\[.\]/TODO/r;
-                say &build_org_headline($org_headline_text, $org_headline_lv);
-                $last_org_headline_lv = $org_headline_lv;
-            } else {
-                # this list item could be convert to a org plain list
-                # simple align text, and convert all item placeholder to '-'
-                # such as '[#-*] ' -> '- '
-                my $aligned_pre_spc_count = $list_pre_spc_count
-                    - $first_list_pre_spc_count
-                    + $org_parent_lv_for_following_list;
-                my $aligned_pre_spc = " " x $aligned_pre_spc_count;
-                s/$list_regexp/$aligned_pre_spc- $3/;
+                # convert source code:
+                # '{{{' -> '#begin_src', '{{{sh' -> '#begin_src sh'
+                s/({{{)/#begin_src /;
+                s/(}}})/#end_src /;
                 say;
-            }
-        }
+            };
+        }                       # given-when end
 
-        # plain text
-        default {
-            #align text TODO
-            # my $plain_pre_spc_count = length(s/$plain_regexp/$1/r);
+        # collect links in current line, and these links will be expand
+        # before next org headline output, in another hand, they will
+        # be append at the end of current org headline(if exist)
+        &collect_links($_, \@collected_links, $vimwiki_file);
+    }                           # foreach end
 
-            # convert source code:
-            # '{{{' -> '#begin_src', '{{{sh' -> '#begin_src sh'
-            s/({{{)/#begin_src /;
-            s/(}}})/#end_src /;
-            say;
-        };
-    }
+    # end of file, expand collected_links in last org headline
     &expand_collected_links(\@collected_links, $last_org_headline_lv);
-
 }
 
 sub compute_org_headline_lv {
@@ -294,14 +318,9 @@ sub build_org_headline {
     my $org_headline = "*" x $org_headline_lv . " " . $org_headline_text;
 }
 
-# collect links under current org headline
-# and convert link format to org type
-sub collect_links_and_format_cur_line {
+# convert link format to org type
+sub convert_link_format {
     my $line = shift;
-    my $collected_links_ref = shift;
-    my $cur_vimwiki_file = shift;
-    my $cur_vimwiki_dir = dirname $cur_vimwiki_file;
-
     my @links = $line =~ m/$link_regexp/g;
     foreach (@links) {
         my $link_file = "";
@@ -322,15 +341,35 @@ sub collect_links_and_format_cur_line {
         } else {
             $line =~ s/\[\[\Q$_\E\]\]/\[\[$org_link_name\]\]/g;
         }
+    }
+    $line;
+}
+# collect links under current org headline
+sub collect_links {
+    my $line = shift;
+    my $collected_links_ref = shift;
+    my $cur_vimwiki_file = shift;
+    my $cur_vimwiki_dir = dirname $cur_vimwiki_file;
+
+    my @links = $line =~ m/$link_regexp/g;
+    foreach (@links) {
+        my $link_file = "";
+        my $link_des = "";
+        if (index($_, "|") >= 0) {
+            $link_file = s/\|.*//r;
+            $link_des = s/.*\|//r;
+        } else {
+            $link_file = $_;
+        }
+        unless (length $link_file) {next;}
 
         # collect the link file's complete path
         $link_file .= $vimwiki_ext;
         $link_file = &build_path($cur_vimwiki_dir, $link_file);
         if(not @$collected_links_ref ~~ /^\Q$link_file\E$/) {
-            push @$collected_links_ref , $link_file;
+            push @$collected_links_ref, $link_file;
         }
     }
-    $line;
 }
 
 # expand collected links in current org headline
@@ -339,9 +378,14 @@ sub expand_collected_links {
     my $collected_links_ref = shift;
     my $org_parent_lv = shift;
 
-    say $org_parent_lv;
-    # open_and_dispatch($_, $org_parent_lv) foreach (@$collected_links_ref);
-    say foreach (@$collected_links_ref);
+    open_and_dispatch($_, $org_parent_lv) foreach (@$collected_links_ref);
+    foreach (@$collected_links_ref) {
+        # not expand diary index file here, it will be dispatch at end
+        if ($_ ne $diary_index_file) {
+            open_and_dispatch($_, $org_parent_lv);
+        }
+    }
+    # say foreach (@$collected_links_ref);
 
     # empty collected links
     @$collected_links_ref = ();
