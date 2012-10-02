@@ -57,18 +57,12 @@ use autodie qw/open close/;
 use List::Util qw/first/;
 use File::Basename;
 use File::Spec;
+use Cwd 'abs_path';
 # TODO, getopt
 
-my $org_commit = "#";           # TODO
-
-# add org file tags
-my $org_file_tags = "vimwiki";
-say $org_commit, '+FILETAGS: :', $org_file_tags, ":";
-
 # options TODO
-my $ignore_lonely_header = 1;
-# $ignore_file_list
-# my $list_max_level_to_org_headline = 1;
+my $org_file_tags = "vimwiki";  # add org file tags
+my $ignore_lonely_header = 1;   # TODO
 my $log_file = "/tmp/vimwiki2org.log";
 my $log_fh;
 my $default_src_type;
@@ -77,6 +71,7 @@ my $default_src_type;
 my $vimwiki_ext = '.wiki';
 my @dispatched_files;
 my @open_error_files;
+my $org_commit = "#";           # TODO
 
 # links in vimwiki
 # such as '[[file]] [[file|name]]'
@@ -88,7 +83,7 @@ my $commit_regexp = '^\s*%';
 
 # headers in vimwiki
 # such as "=== header ==="
-my $header_regexp = '^(=+) ?(.*) ?\1$';
+my $header_regexp = '^(?:\s*)(=+) ?(.*) ?\1(?:\s*)$';
 
 # lists in vimwiki
 # such as "* list", "- list", "# list"
@@ -99,6 +94,9 @@ my $plain_regexp = '^(\s*)(.*)$';
 
 ## main loop
 &open_log();
+if (defined $org_file_tags) {
+    say $org_commit, '+FILETAGS: :', $org_file_tags, ":";
+}
 my $diary_index_file;
 foreach (@ARGV) {
     # the vimwiki index file
@@ -111,19 +109,20 @@ foreach (@ARGV) {
 
     &open_and_dispatch($index_file);
     &open_and_dispatch($diary_index_file);
-    # TODO diary file
 }
 &close_log();
 
 sub build_path {
     my $path = File::Spec->catfile(@_);
-    File::Spec->canonpath($path); # clean up path
+    # clean up path, remove "./" and "../"
+    $path = abs_path($path);
+    $path = File::Spec->abs2rel($path);
 }
 
 sub open_log {
     eval {open $log_fh, ">", $log_file};
     warn $@ if ($@);
-    &append_log("# ERROR MESSAGE");
+    &append_log("# MESSAGES");
 }
 
 sub append_log {
@@ -205,6 +204,7 @@ sub open_and_dispatch {
 
     # a marker to dispatch source code, select is is "#+begin_src" or "#+begin_example"
     my $last_begin_as_src;
+    my $under_src_block;
 
     foreach(@content) {
         # my $exist_link_in_cur_line = 0;
@@ -293,6 +293,7 @@ sub open_and_dispatch {
                     # source code with type
                     s/{{{/#+begin_src /;
                     $last_begin_as_src = 1;
+                    $under_src_block = 1;
                 } elsif (/{{{$/) {
                     # source code without type
                     if (defined $default_src_type) {
@@ -302,12 +303,14 @@ sub open_and_dispatch {
                         s/{{{/#+begin_example/;
                         $last_begin_as_src = 0;
                     }
+                    $under_src_block = 1;
                 } elsif (/}}}/) {
                     if ($last_begin_as_src) {
                         s/}}}/#+end_src/;
                     } else {
                         s/}}}/#+end_example/;
                     }
+                    $under_src_block = 0;
                 }
 
                 say;
@@ -317,7 +320,7 @@ sub open_and_dispatch {
         # collect links in current line, and these links will be expand
         # before next org headline output, in another hand, they will
         # be append at the end of current org headline(if exist)
-        &collect_links($_, \@collected_links, $vimwiki_file);
+        &collect_links($_, \@collected_links, $vimwiki_file) if (!$under_src_block);
     }                           # foreach end
 
     # end of file, expand collected_links in last org headline
@@ -346,19 +349,27 @@ sub convert_link_format {
     my $line = shift;
     my @links = $line =~ m/$link_regexp/g;
     foreach (@links) {
-        my $link_file = "";
+        my $link_content = "";
         my $link_des = "";
         if (index($_, "|") >= 0) {
-            $link_file = s/\|.*//r;
+            $link_content = s/\|.*//r;
             $link_des = s/.*\|//r;
         } else {
-            $link_file = $_;
+            $link_content = $_;
         }
-        unless (length $link_file) {next;}
+        if (!length $link_content) {next;}
 
         # convert link format to org type
         # such as '[[folder/file|des]]' -> '[[file][des]]'
-        my $org_link_name = basename $link_file;
+        # or '[[http://url|des]]' -> '[[http://url][des]]'
+        my $org_link_name;
+        if ($link_content =~ m{.+://}) {
+            # url link
+            $org_link_name = $link_content;
+        } else {
+            # file link
+            $org_link_name = basename $link_content;
+        }
         if (length $link_des) {
             $line =~ s/\[\[\Q$_\E\]\]/\[\[$org_link_name\]\[$link_des\]\]/g;
         } else {
@@ -376,21 +387,22 @@ sub collect_links {
 
     my @links = $line =~ m/$link_regexp/g;
     foreach (@links) {
-        my $link_file = "";
+        my $link_content = "";
         my $link_des = "";
         if (index($_, "|") >= 0) {
-            $link_file = s/\|.*//r;
+            $link_content = s/\|.*//r;
             $link_des = s/.*\|//r;
         } else {
-            $link_file = $_;
+            $link_content = $_;
         }
-        unless (length $link_file) {next;}
+        if (!length $link_content) {next;}
+        if ($link_content =~ m{.+://}) {next;}
 
         # collect the link file's complete path
-        $link_file .= $vimwiki_ext;
-        $link_file = &build_path($cur_vimwiki_dir, $link_file);
-        if(not @$collected_links_ref ~~ /^\Q$link_file\E$/) {
-            push @$collected_links_ref, $link_file;
+        $link_content .= $vimwiki_ext;
+        $link_content = &build_path($cur_vimwiki_dir, $link_content);
+        if(not @$collected_links_ref ~~ /^\Q$link_content\E$/) {
+            push @$collected_links_ref, $link_content;
         }
     }
 }
@@ -401,11 +413,12 @@ sub expand_collected_links {
     my $collected_links_ref = shift;
     my $org_parent_lv = shift;
 
-    open_and_dispatch($_, $org_parent_lv) foreach (@$collected_links_ref);
     foreach (@$collected_links_ref) {
         # not expand diary index file here, it will be dispatch at end
         if ($_ ne $diary_index_file) {
             open_and_dispatch($_, $org_parent_lv);
+        } else {
+            &append_log("find diary index file as a link: " . $_);
         }
     }
     # say foreach (@$collected_links_ref);
