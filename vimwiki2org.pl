@@ -71,6 +71,7 @@ my $ignore_lonely_header = 1;
 # my $list_max_level_to_org_headline = 1;
 my $log_file = "/tmp/vimwiki2org.log";
 my $log_fh;
+my $default_src_type;
 
 # other variables
 my $vimwiki_ext = '.wiki';
@@ -202,6 +203,9 @@ sub open_and_dispatch {
     # use this to judge if a list is first level under the header
     my $first_list_pre_spc_count = undef;
 
+    # a marker to dispatch source code, select is is "#+begin_src" or "#+begin_example"
+    my $last_begin_as_src;
+
     foreach(@content) {
         # my $exist_link_in_cur_line = 0;
         given ($_) {
@@ -284,9 +288,28 @@ sub open_and_dispatch {
                 # my $plain_pre_spc_count = length(s/$plain_regexp/$1/r);
 
                 # convert source code:
-                # '{{{' -> '#begin_src', '{{{sh' -> '#begin_src sh'
-                s/({{{)/#begin_src /;
-                s/(}}})/#end_src /;
+                # '{{{' -> '#+begin_example', '{{{sh' -> '#+begin_src sh'
+                if (/{{{.+$/) {
+                    # source code with type
+                    s/{{{/#+begin_src /;
+                    $last_begin_as_src = 1;
+                } elsif (/{{{$/) {
+                    # source code without type
+                    if (defined $default_src_type) {
+                        s/{{{/#+begin_src $default_src_type/;
+                        $last_begin_as_src = 1;
+                    } else {
+                        s/{{{/#+begin_example/;
+                        $last_begin_as_src = 0;
+                    }
+                } elsif (/}}}/) {
+                    if ($last_begin_as_src) {
+                        s/}}}/#+end_src/;
+                    } else {
+                        s/}}}/#+end_example/;
+                    }
+                }
+
                 say;
             };
         }                       # given-when end
