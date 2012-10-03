@@ -92,6 +92,12 @@ my $list_regexp = '^(\s*)([#*-]) (.*)$';
 # plain text in vimwiki
 my $plain_regexp = '^(\s*)(.*)$';
 
+# source block in vimwiki
+# such as '{{{', '{{{sh', '}}}'
+my $src_block_begin_with_type_regexp = '^\s*{{{\s*\S+$';
+my $src_block_begin_no_type_regexp = '^\s*{{{\s*$';
+my $src_block_end_regexp = '^\s*}}}\s*$';
+
 ## main loop
 &open_log();
 if (defined $org_file_tags) {
@@ -296,22 +302,22 @@ sub open_and_dispatch {
 
                 # convert source code:
                 # '{{{' -> '#+begin_example', '{{{sh' -> '#+begin_src sh'
-                if (/{{{.+$/) {
+                if (/$src_block_begin_with_type_regexp/) {
                     # source code with type
                     s/{{{/#+begin_src /;
                     $last_begin_as_src = 1;
                     $under_src_block = 1;
-                } elsif (/{{{$/) {
+                } elsif (/$src_block_begin_no_type_regexp/) {
                     # source code without type
-                    if (defined $default_src_type) {
-                        s/{{{/#+begin_src $default_src_type/;
+                    if (defined $unnamed_src_block_convert_type) {
+                        s/{{{/#+begin_src $unnamed_src_block_convert_type/;
                         $last_begin_as_src = 1;
                     } else {
                         s/{{{/#+begin_example/;
                         $last_begin_as_src = 0;
                     }
                     $under_src_block = 1;
-                } elsif (/}}}/) {
+                } elsif (/$src_block_end_regexp/) {
                     if ($last_begin_as_src) {
                         s/}}}/#+end_src/;
                     } else {
