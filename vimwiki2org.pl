@@ -114,9 +114,16 @@ foreach (@ARGV) {
 
 sub build_path {
     my $path = File::Spec->catfile(@_);
-    # clean up path, remove "./" and "../"
-    $path = abs_path($path);
-    $path = File::Spec->abs2rel($path);
+    # clean up path, remove "./"
+    $path = File::Spec->canonpath($path);
+    # clean up path, remove "../"
+    if ($path =~ /\.\./) {
+        my $abs_path = abs_path($path);
+        if (defined $abs_path) {
+            $path = File::Spec->abs2rel($abs_path);
+        }
+    }
+    $path;
 }
 
 sub open_log {
