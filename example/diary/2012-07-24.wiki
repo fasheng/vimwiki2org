@@ -1,0 +1,7 @@
+
+=== 2012-07-24 Tuesday ===
+* list 1
+* list 2
+  * list 2-1
+  * list 2-2
+* list 3

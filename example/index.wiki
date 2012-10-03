@@ -1,0 +1,59 @@
+%title Personal Vim Wiki
+%toc Table
+
+text before header
+%%commit text
+
+* List before header
+  # list 1-1
+  # list 1-2
+
+=== Header 1 lv3 ===
+content in header
+* list 1
+  * list 1-3
+  * list 1-2
+* list 2, links in list item, [[link_1]],  [[link_2]]
+  - list 2-1, link_2 again, with description, [[link_2|link_des_2]]
+  - list 2-2, link in other folder
+    [[sub/sub_link_1|sub_link_des_1]]
+    [[./sub/../sub/sub_link_1|sub_link_relative_path]]
+  - list 2-3, url link
+    [[http://www.google.com]]
+    [[https://www.google.com|Google]]
+* list 3
+* [[diary/diary|Diary]]
+
+==== Header 2 lv4 ====
+the following list is indented
+  * [ ] Do stuff 1, with 'TODO' state
+    - [ ] Do substuff 1.1
+      [[link_1|link_des_1]]
+    - [ ] Do substuff 2.2
+      # [ ] Do substuff 1.2.1
+        content in list, indent less
+      # [ ] Do substuff 1.2.2
+          content in list, indent more
+    - [ ] Do substuff 1.3
+  * [.] Do stuff 2, with 'TODO' state
+  * [X] Do stuff 3, with 'DONE' state
+  
+== Header 3 lv2 ==
+* source block with type
+  {{{class="brush: python" 
+   def hello(world):
+       for x in range(10):
+           print("Hello {0} number {1}".format(world, x))
+  }}}
+* source block with type, simple mode
+  {{{sh 
+  awk '/key/ {print}'
+  awk F: '{...}'
+  }}}
+* source block without type
+  {{{   
+  awk '/key/ {print}'
+  awk F: '{...}'
+  }}}   
+
+=== Header 4 lv3 [[link_2]] ===
