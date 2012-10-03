@@ -83,7 +83,7 @@ my $commit_regexp = '^\s*%';
 
 # headers in vimwiki
 # such as "=== header ==="
-my $header_regexp = '^(?:\s*)(=+) ?(.*) ?\1(?:\s*)$';
+my $header_regexp = '^(?:\s*)(=+) *(.*\S) *\1(?:\s*)$';
 
 # lists in vimwiki
 # such as "* list", "- list", "# list"
@@ -222,20 +222,21 @@ sub open_and_dispatch {
     foreach(@content) {
         # my $exist_link_in_cur_line = 0;
         given ($_) {
+            # commit and placeholder of vimwiki, which all start with "%"
+            when (/$commit_regexp/) {
+                say "# ", $_;
+            }
+
             # links in vimwiki
             when (/$link_regexp/) {
+                continue if $under_src_block;
                 $_ = &convert_link_format($_);
                 continue;
             }
 
-            # commit and placeholder of vimwiki, which all start with "%"
-            when (/$commit_regexp/) {
-                say "# ", $_;
-                # next;           # TODO
-            }
-
             # headers in vimwiki
             when (/$header_regexp/) {
+                continue if $under_src_block;
                 &expand_collected_links(\@collected_links, $last_org_headline_lv);
 
                 # reset markers
@@ -246,7 +247,6 @@ sub open_and_dispatch {
                     if ($header_count <= 1) {
                         say $org_commit, $_;
                         break;
-                        # next;   # TODO
                     }
                 }
 
@@ -266,6 +266,7 @@ sub open_and_dispatch {
 
             # lists in vimwiki
             when (/$list_regexp/) {
+                continue if $under_src_block;
                 my $list_pre_spc_count = length(s/$list_regexp/$1/r);
                 my $list_text = s/$list_regexp/$3/r;
                 if (!defined($first_list_pre_spc_count)) {
@@ -302,26 +303,32 @@ sub open_and_dispatch {
 
                 # convert source code:
                 # '{{{' -> '#+begin_example', '{{{sh' -> '#+begin_src sh'
+                # '{{{class="brush: sh"' -> '#+begin_src sh'
                 if (/$src_block_begin_with_type_regexp/) {
                     # source code with type
-                    s/{{{/#+begin_src /;
+                    if (/class=/) {
+                        s/{{{.*:\s*(\S+)\s*"\s*$/#+begin_src $1/;
+                    } else {
+                        s/{{{\s*(\S+)\s*$/#+begin_src $1/;
+                    }
+
                     $last_begin_as_src = 1;
                     $under_src_block = 1;
                 } elsif (/$src_block_begin_no_type_regexp/) {
                     # source code without type
-                    if (defined $unnamed_src_block_convert_type) {
-                        s/{{{/#+begin_src $unnamed_src_block_convert_type/;
+                    if (defined $untyped_preformat_block_convert_type) {
+                        s/{{{\s*/#+begin_src $untyped_preformat_block_convert_type/;
                         $last_begin_as_src = 1;
                     } else {
-                        s/{{{/#+begin_example/;
+                        s/{{{\s*/#+begin_example/;
                         $last_begin_as_src = 0;
                     }
                     $under_src_block = 1;
                 } elsif (/$src_block_end_regexp/) {
                     if ($last_begin_as_src) {
-                        s/}}}/#+end_src/;
+                        s/}}}\s*/#+end_src/;
                     } else {
-                        s/}}}/#+end_example/;
+                        s/}}}\s*/#+end_example/;
                     }
                     $under_src_block = 0;
                 }
@@ -403,9 +410,11 @@ sub collect_links {
         my $link_content = "";
         my $link_des = "";
         if (index($_, "|") >= 0) {
+            # exist description in vimwiki link, split it
             $link_content = s/\|.*//r;
             $link_des = s/.*\|//r;
         } else {
+            # there is no description
             $link_content = $_;
         }
         if (!length $link_content) {next;}
