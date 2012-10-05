@@ -8,6 +8,7 @@ text before header
   # list 1-1
   # list 1-2
 
+=== 3 ===
 === Header 1 lv3 ===
 content in header
 * list 1
@@ -46,7 +47,7 @@ the following list is indented
            print("Hello {0} number {1}".format(world, x))
   }}}
 * source block with type, simple mode
-  {{{sh 
+  {{{sh  
   awk '/key/ {print}'
   awk F: '{...}'
   }}}
