@@ -71,7 +71,7 @@ my $version_msg = "$program_name version 0.1";
 
 my @dispatched_files;
 my @open_error_files;
-my $org_comment = "#";           # TODO
+my $org_comment = "#";
 
 # links in vimwiki
 # such as '[[file]] [[file|name]]'
@@ -165,7 +165,7 @@ sub build_path {
 }
 
 sub open_log {
-    return unless $log_file;    # TODO
+    return unless $log_file;
     eval {open $log_fh, ">", $log_file};
     warn $@ if ($@);
     &append_log("# MESSAGES");
@@ -243,7 +243,6 @@ sub open_and_dispatch {
     my @collected_links = ();
     my $last_org_headline_lv = $org_parent_lv;
 
-    # my $cur_header_org_lv = $org_parent_lv;# TODO
     my $org_parent_lv_for_following_list = $org_parent_lv;
     # remember the first list item's prefix space count in a header
     # use this to judge if a list is first level under the header
@@ -332,9 +331,6 @@ sub open_and_dispatch {
 
             # plain text
             default {
-                #align text TODO
-                # my $plain_pre_spc_count = length(s/$plain_regexp/$1/r);
-
                 # convert source code:
                 # '{{{' -> '#+begin_example', '{{{sh' -> '#+begin_src sh'
                 # '{{{class="brush: sh"' -> '#+begin_src sh'
