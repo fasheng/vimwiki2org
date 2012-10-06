@@ -105,6 +105,7 @@ my $log_fh;
 
 # options
 my $org_file_tags = "vimwiki";  # add org file tags
+my $diary_relative_index_file = "diary/diary.wiki";
 my $log_file = "/tmp/vimwiki2org.log";
 my $vimwiki_ext = '.wiki';
 my $ignore_lonely_header = 1;
@@ -119,6 +120,8 @@ $Getopt::Long::ignorecase = 0;
 GetOptions(
     'file-tags|t:s'       => \$org_file_tags,
     'no-file-tags|no-t'   => sub{ $org_file_tags='' },
+    'diary-relative-file|d:s' => \$diary_relative_index_file,
+    'no-diary-relative-file|no-d' => sub{ $diary_relative_index_file='' },
     'log-file|l:s'        => \$log_file,
     'no-log-file|no-l:s'  => sub{ $log_file='' },
     'vimwiki-ext|e:s'     => \$vimwiki_ext,
@@ -140,18 +143,22 @@ if ($version) {
 if ($org_file_tags) {
     say $org_comment, '+FILETAGS: :', $org_file_tags, ":\n";
 }
+my $enabled_diary_index_file = 1;
+$enabled_diary_index_file=0 if $diary_relative_index_file eq '';
 my $diary_index_file;
 foreach (@ARGV) {
     # the vimwiki index file
     my $index_file = $_;
     $index_file = File::Spec->canonpath($index_file);
 
-    # the vimwiki diary index file, this file will dispatched at end
-    my $vimwiki_base_dir = dirname $index_file;
-    $diary_index_file = &build_path($vimwiki_base_dir, "diary/diary.wiki");
-
+    if ($enabled_diary_index_file) {
+        # the vimwiki diary index file, this file will dispatched at end
+        my $vimwiki_base_dir = dirname $index_file;
+        $diary_index_file = &build_path($vimwiki_base_dir,
+                                        $diary_relative_index_file);
+    }
     &open_and_dispatch($index_file);
-    &open_and_dispatch($diary_index_file);
+    &open_and_dispatch($diary_index_file) if $enabled_diary_index_file;
 }
 if ($dispatch_lost_files eq 'check') {
     &check_lost_files();
@@ -511,11 +518,15 @@ sub expand_collected_links {
     my $org_parent_lv = shift;
 
     foreach (@$collected_links_ref) {
-        # not expand diary index file here, it will be dispatch at end
-        if ($_ ne $diary_index_file) {
-            open_and_dispatch($_, $org_parent_lv);
+        if ($enabled_diary_index_file) {
+            # not expand diary index file here, it will be dispatch at end
+            if ($_ ne $diary_index_file) {
+                open_and_dispatch($_, $org_parent_lv);
+            } else {
+                &append_log("find diary index file as a link: " . $_);
+            }
         } else {
-            &append_log("find diary index file as a link: " . $_);
+            open_and_dispatch($_, $org_parent_lv);
         }
     }
 
@@ -545,6 +556,16 @@ set the org-mode's file tags(#+FILETAGS), if is empty or
 use B<--no-file-tags> will not insert file tags
 (B<default> value is: "vimwiki")
 
+=item B<-d>, B<--diary-relative-file>=diary.wiki, B<--no-d>,
+B<--no-diary-relative-file>
+
+set the diary index file's path relative to the file in options,
+and the diary index file will be append after the file
+as a level 1 org-mode headline, if existed.
+if is empty or use B<--no-diary-relative-file>, will not dispatch diary
+index file specially
+(B<default> value is: "diary/diary.wiki")
+
 =item B<-l>, B<--log-file>=log.txt, B<--no-l>, B<--no-log-file>
 
 set the log file, if is empty or use B<--no-log-file> will not write log,
@@ -562,7 +583,7 @@ append the lost files' content under level 1 headline named "lost files"
 
 =item B<-e>, B<--vimwiki-ext>=.wiki
 
-set the default vimwiki's file extension name
+set the default vimwiki's file extension name, used to build link's file name
 (B<default> value is: ".wiki")
 
 =item B<-i>, B<--ignore-lonely-header>, B<--no-i>, B<--no-ignore-lonely-header>
@@ -602,7 +623,7 @@ prints the version information and exits
 B<This program> will read the given input vimwiki file(s) and convert to
 org-mode and output, here is the conversion rules:
 
-=over 8
+=over 4
 
 =item * B<comment> and B<placeholder> in vimwiki, which start with 'B<%>'
 
@@ -690,8 +711,8 @@ unless the later file is dispatched as a link in the earlier file
 
 =item * B<diary> index file in vimwiki
 
-each file in options should has a diary index file, default is 'B<diary/diary.wiki>' relative to the file's path, it will be dispatched after the file,
-as a level 1 org-mode headline
+each file in options should has a diary index file, default is 'B<diary/diary.wiki>' relative to the file's path, it will be append after the file,
+as a level 1 org-mode headline, if existed
 
 =back
 
@@ -699,7 +720,7 @@ as a level 1 org-mode headline
 
 perl vimwiki2org.pl example/index.wiki > vimwiki.org
 
-perl vimwiki2org.pl -t tag1:tag2 -l log.txt -L=check -- index.wiki > vimwiki.org
+perl vimwiki2org.pl -d diary/diary.wiki -l log.txt -L=check -- index.wiki > vimwiki.org
 
 =head1 AUTHOR
 
