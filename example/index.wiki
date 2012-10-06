@@ -8,7 +8,6 @@ text before header
   # list 1-1
   # list 1-2
 
-=== 3 ===
 === Header 1 lv3 ===
 content in header
 * list 1

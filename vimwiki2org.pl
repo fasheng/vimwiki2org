@@ -64,6 +64,7 @@ use File::Spec;
 use Cwd 'abs_path';
 use Getopt::Long;
 use Pod::Usage;
+use File::Find;
 
 ## global variables
 my $program_name="vimwiki2org.pl";
@@ -71,6 +72,7 @@ my $version_msg = "$program_name version 0.1";
 
 my @dispatched_files;
 my @open_error_files;
+my @lost_files;
 my $org_comment = "#";
 
 # links in vimwiki
@@ -107,18 +109,21 @@ my $log_file = "/tmp/vimwiki2org.log";
 my $vimwiki_ext = '.wiki';
 my $ignore_lonely_header = 1;
 my $untyped_preformat_block_convert_type = undef;
+my $dispatch_lost_files = '';
 
 ## main loop
 my $man = 0;
 my $help = 0;
 my $version = 0;
+$Getopt::Long::ignorecase = 0;
 GetOptions(
     'file-tags|t:s'       => \$org_file_tags,
     'no-file-tags|no-t'   => sub{ $org_file_tags='' },
     'log-file|l:s'        => \$log_file,
     'no-log-file|no-l:s'  => sub{ $log_file='' },
     'vimwiki-ext|e:s'     => \$vimwiki_ext,
-    'ignore-lonely-header|i!'    => \$ignore_lonely_header,
+    'lost-files|L:s'      => \$dispatch_lost_files,
+    'ignore-lonely-header|i!' => \$ignore_lonely_header,
     'untyped-preformat-block-convert-type|u:s' => \$untyped_preformat_block_convert_type,
     'help|h'    => \$help,
     'man|m'     => \$man,
@@ -148,10 +153,21 @@ foreach (@ARGV) {
     &open_and_dispatch($index_file);
     &open_and_dispatch($diary_index_file);
 }
+if ($dispatch_lost_files eq 'check') {
+    &check_lost_files();
+} elsif ($dispatch_lost_files eq 'fix') {
+    &check_lost_files();
+    &fix_lost_files();
+}
 &close_log();
 
 sub build_path {
     my $path = File::Spec->catfile(@_);
+    &clean_path($path);
+}
+
+sub clean_path {
+    my $path = shift;
     # clean up path, remove "./"
     $path = File::Spec->canonpath($path);
     # clean up path, remove "../"
@@ -182,7 +198,36 @@ sub close_log {
     &append_log($_) foreach (@dispatched_files);
     &append_log("\n# OPEN FAILED FILES");
     &append_log($_) foreach (@open_error_files);
+    if ($dispatch_lost_files) {
+        &append_log("\n# LOST FILES");
+        &append_log($_) foreach (@lost_files);
+    }
     eval {close $log_fh};
+}
+
+my @found_files;
+sub check_lost_files {
+    my @base_dir;
+    push @base_dir, dirname $_ foreach @ARGV;
+    @found_files = ();
+    find(sub {push @found_files, $File::Find::name if /$vimwiki_ext$/;}, @base_dir);
+    $_ = &clean_path($_) foreach @found_files;
+    foreach (@found_files) {
+        if (not @dispatched_files ~~ /^\Q$_\E$/) {
+            push @lost_files, $_ if (not @lost_files ~~ /^\Q$_\E$/);
+        }
+    }
+}
+
+sub fix_lost_files {
+    my $org_parent_lv = 0;
+    {
+        my $org_headline_text = "fixed lost files";
+        my $org_headline_lv = $org_parent_lv + 1;
+        say &build_org_headline($org_headline_text, $org_headline_lv);
+        $org_parent_lv++;
+    }
+    open_and_dispatch($_, $org_parent_lv)  foreach @lost_files;
 }
 
 # main function
@@ -498,23 +543,33 @@ vimwiki2org.pl [options] -- index.wiki [file ...]
 
 set the org-mode's file tags(#+FILETAGS), if is empty or
 use B<--no-file-tags> will not insert file tags
-(default value is: "vimwiki")
+(B<default> value is: "vimwiki")
 
 =item B<-l>, B<--log-file>=log.txt, B<--no-l>, B<--no-log-file>
 
-set the log file, if is empty or use B<--no-log-file> will not write log
-(default value is: "/tmp/vimwiki2org.log")
+set the log file, if is empty or use B<--no-log-file> will not write log,
+the log file contain three sections:'MESSAGES', 'DISPATCHED FILES',
+'OPEN FAILED FILES'
+(B<default> value is: "/tmp/vimwiki2org.log")
+
+=item B<-L>, B<--lost-files>=<B<check>|B<fix>>
+
+set if check or fix the vimwiki files which is not dispatched and in the same
+folder or sub folders with the file(s) in options, if use 'B<check>', will
+append a new section named 'LOST FILES' in log file, if use 'B<fix>', will
+append the lost files' content under level 1 headline named "lost files"
+(B<default> value is: <none>)
 
 =item B<-e>, B<--vimwiki-ext>=.wiki
 
 set the default vimwiki's file extension name
-(default value is: ".wiki")
+(B<default> value is: ".wiki")
 
 =item B<-i>, B<--ignore-lonely-header>, B<--no-i>, B<--no-ignore-lonely-header>
 
 set if ignore the only one header in a vimwiki file, because we have
 set its filename as a parent org-mode headline
-(default option is: B<--ignore-lonely-header>)
+(B<default> option is: B<--ignore-lonely-header>)
 
 =item B<-u>, B<--untyped-preformat-block-convert-type>=perl
 
@@ -526,7 +581,7 @@ typed preformat code will convert to as org source block, such as
 example block, such as 'B<#+begin_example>', if you use
 B<--untyped-preformat-block-convert-type>, the untyped preformat block will
 convert to as org source block with your defined type, too
-(default value is: <undef>)
+(B<default> value is: <undef>)
 
 =item B<-h>, B<--help>
 
@@ -642,9 +697,9 @@ as a level 1 org-mode headline
 
 =head1 EXAMPLES
 
-perl vimwiki2org.pl index.wiki > vimwiki.org
+perl vimwiki2org.pl example/index.wiki > vimwiki.org
 
-perl vimwiki2org.pl -t tag1:tag2 -l log.txt -- index.wiki > vimwiki.org
+perl vimwiki2org.pl -t tag1:tag2 -l log.txt -L=check -- index.wiki > vimwiki.org
 
 =head1 AUTHOR
 
