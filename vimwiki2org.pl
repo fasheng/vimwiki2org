@@ -606,7 +606,7 @@ convert to as org source block with your defined type, too
 
 =item B<-h>, B<--help>
 
-print a brief help message and exits
+prints a brief help message and exits
 
 =item B<-m>, B<--man>
 
