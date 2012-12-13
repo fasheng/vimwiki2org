@@ -7,11 +7,6 @@
 # Author: Xu FaSheng
 # Maintainer: Xu FaSheng
 # Created: Sat Sep 29 17:39:10 2012 (+0800)
-# Version: 0.1
-# Last-Updated:
-#           By:
-#     Update #: 0
-# URL:
 # Keywords: vimwiki org org-mode
 # Compatibility:
 #   test ok on vimwiki 2.0.1.stu
@@ -32,6 +27,9 @@
 #
 
 # Change Log:
+# - 0.2
+#   + [add] README.markdown
+#   + [add] Makefile
 # - 0.1
 #   + create
 #
@@ -68,7 +66,7 @@ use File::Find;
 
 ## global variables
 my $program_name="vimwiki2org.pl";
-my $version_msg = "$program_name version 0.1";
+my $version_msg = "$program_name version 0.2";
 
 my @dispatched_files;
 my @open_error_files;
