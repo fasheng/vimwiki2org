@@ -63,6 +63,7 @@ use Cwd 'abs_path';
 use Getopt::Long;
 use Pod::Usage;
 use File::Find;
+no if $] >= 5.017011, warnings => 'experimental::smartmatch';
 
 ## global variables
 my $program_name="vimwiki2org.pl";
