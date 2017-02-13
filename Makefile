@@ -20,7 +20,7 @@
 ### Code:
 
 DESTDIR=
-prefix=$(DESTDIR)/usr
+prefix=$(DESTDIR)/usr/local
 exec_prefix=$(prefix)
 bindir=$(exec_prefix)/bin
 datarootdir=$(prefix)/share
